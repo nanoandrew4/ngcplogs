@@ -47,6 +47,12 @@ var (
 		"severity",
 		"level",
 	}
+
+	timestampFields = []string{
+		"timestamp",
+		"time",
+		"ts",
+	}
 )
 
 func init() {
@@ -64,6 +70,10 @@ type nGCPLogger struct {
 	logger    *logging.Logger
 	instance  *instanceInfo
 	container *containerInfo
+
+	extractJsonMessage bool
+	extractSeverity    bool
+	excludeTimestamp   bool
 }
 
 type dockerLogEntry struct {
@@ -178,10 +188,23 @@ func New(info logger.Info) (logger.Logger, error) {
 			Created:   info.ContainerCreated,
 			Metadata:  extraAttributes,
 		},
+		extractJsonMessage: true,
+		extractSeverity:    true,
+		excludeTimestamp:   false,
 	}
 
 	if info.Config[logCmdKey] == "true" {
 		l.container.Command = info.Command()
+	}
+
+	if info.Config["extract-json-message"] == "false" {
+		l.extractJsonMessage = false
+	}
+	if info.Config["extract-severity"] == "false" {
+		l.extractSeverity = false
+	}
+	if info.Config["exclude-timestamp"] == "true" {
+		l.excludeTimestamp = true
 	}
 
 	if instanceResource != nil {
@@ -227,24 +250,15 @@ func (l *nGCPLogger) Log(lMsg *logger.Message) error {
 		var payload any
 		severity := logging.Default
 
-		if logLine[0] == '{' && logLine[len(logLine)-1] == '}' {
+		if l.extractJsonMessage && logLine[0] == '{' && logLine[len(logLine)-1] == '}' {
 			var m map[string]any
 			err := json.Unmarshal(logLine, &m)
 			if err != nil {
 				payload = fmt.Sprintf("Error parsing JSON: %s", string(logLine))
 				severity = logging.Critical
 			} else {
-				for _, severityField := range severityFields {
-					if rawSeverity, exists := m[severityField]; exists {
-						if parsedSeverity, isString := rawSeverity.(string); isString {
-							severity = logging.ParseSeverity(parsedSeverity)
-							if severity != logging.Default { // severity was parsed correctly, we can remove it from the jsonPayload section
-								delete(m, severityField)
-							}
-							break
-						}
-					}
-				}
+				severity = l.extractSeverityFromPayload(m)
+				l.excludeTimestampFromPayload(m)
 				m["instance"] = l.instance
 				m["container"] = l.container
 				payload = m
@@ -265,6 +279,36 @@ func (l *nGCPLogger) Log(lMsg *logger.Message) error {
 		})
 	}
 	return nil
+}
+
+func (l *nGCPLogger) extractSeverityFromPayload(m map[string]any) logging.Severity {
+	severity := logging.Default
+
+	if l.extractSeverity {
+		for _, severityField := range severityFields {
+			if rawSeverity, exists := m[severityField]; exists {
+				if parsedSeverity, isString := rawSeverity.(string); isString {
+					severity = logging.ParseSeverity(parsedSeverity)
+					if severity != logging.Default { // severity was parsed correctly, we can remove it from the jsonPayload section
+						delete(m, severityField)
+					}
+					break
+				}
+			}
+		}
+	}
+
+	return severity
+}
+
+func (l *nGCPLogger) excludeTimestampFromPayload(m map[string]any) {
+	if l.excludeTimestamp {
+		for _, timestampField := range timestampFields {
+			if _, exists := m[timestampField]; exists {
+				delete(m, timestampField)
+			}
+		}
+	}
 }
 
 func (l *nGCPLogger) Close() error {

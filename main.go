@@ -7,27 +7,14 @@ package main
 import (
 	"github.com/docker/go-plugins-helpers/sdk"
 	"log"
-	"os"
-	"strconv"
-)
-
-//const socketAddress = "/run/docker/plugins/ngcplogs.sock"
-
-var (
-	localLoggingEnabled = false
 )
 
 func main() {
 	nGCPDriver := createDriver()
 
-	parsedLocalLogging, err := strconv.ParseBool(os.Getenv("local-logging"))
-	if err == nil {
-		localLoggingEnabled = parsedLocalLogging
-	}
-
 	sdkHandler := sdk.NewHandler(`{"Implements": ["LoggingDriver"]}`)
 	registerHandlers(&sdkHandler, nGCPDriver)
-	err = sdkHandler.ServeUnix("ngcplogs", 0)
+	err := sdkHandler.ServeUnix("ngcplogs", 0)
 	if err != nil {
 		log.Fatalf("Error in socket handler: %s", err)
 	}

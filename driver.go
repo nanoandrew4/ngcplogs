@@ -48,15 +48,10 @@ func (d *driver) logAndReturnError(err error, msg string) error {
 }
 
 func (d *driver) StartLogging(file string, info logger.Info) error {
-	logFileReader, err := fifo.OpenFifo(context.Background(), file, syscall.O_RDONLY, 0700)
-	if err != nil {
-		return d.logAndReturnError(err, "Error opening log file")
-	}
-
 	if info.LogPath == "" {
 		info.LogPath = filepath.Join("/var/log/docker", info.ContainerID)
 	}
-	if err = os.MkdirAll(filepath.Dir(info.LogPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(info.LogPath), 0755); err != nil {
 		return errors.Wrap(err, "error setting up logger dir")
 	}
 
@@ -68,6 +63,11 @@ func (d *driver) StartLogging(file string, info logger.Info) error {
 	gLogger, err := New(info)
 	if err != nil {
 		return d.logAndReturnError(err, "Error creating GCP logger")
+	}
+
+	logFileReader, err := fifo.OpenFifo(context.Background(), file, syscall.O_RDONLY, 0700)
+	if err != nil {
+		return d.logAndReturnError(err, "Error opening log file")
 	}
 
 	d.mu.Lock()
@@ -101,29 +101,32 @@ func (d *driver) consumeLog(lp *logPair) {
 			continue
 		}
 
-		var msg logger.Message
-		msg.Line = buf.Line
-		msg.Source = buf.Source
-		if buf.PartialLogMetadata != nil {
-			msg.PLogMetaData.ID = buf.PartialLogMetadata.Id
-			msg.PLogMetaData.Last = buf.PartialLogMetadata.Last
-			msg.PLogMetaData.Ordinal = int(buf.PartialLogMetadata.Ordinal)
-		}
-		msg.Timestamp = time.Unix(0, buf.TimeNano)
-
-		if err := lp.gLogger.Log(&msg); err != nil {
-			d.sLog.With("id", lp.info.ContainerID, "error", err, "message", msg).Error("error writing log to GCP logger message")
+		if err := lp.gLogger.Log(createMessageFromBuffer(&buf)); err != nil {
+			d.sLog.With("id", lp.info.ContainerID, "error", err, "message", buf).Error("error writing log to GCP logger message")
 			continue
 		}
-		if localLoggingEnabled {
-			if err := lp.jsonl.Log(&msg); err != nil {
-				d.sLog.With("id", lp.info.ContainerID, "error", err, "message", msg).Error("error writing log message to JSON logger")
+		if lp.info.Config["local-logging"] == "true" {
+			if err := lp.jsonl.Log(createMessageFromBuffer(&buf)); err != nil {
+				d.sLog.With("id", lp.info.ContainerID, "error", err, "message", buf).Error("error writing log message to JSON logger")
 				continue
 			}
 		}
 
 		buf.Reset()
 	}
+}
+
+func createMessageFromBuffer(buf *logdriver.LogEntry) *logger.Message {
+	var msg logger.Message
+	msg.Line = buf.Line
+	msg.Source = buf.Source
+	if buf.PartialLogMetadata != nil {
+		msg.PLogMetaData.ID = buf.PartialLogMetadata.Id
+		msg.PLogMetaData.Last = buf.PartialLogMetadata.Last
+		msg.PLogMetaData.Ordinal = int(buf.PartialLogMetadata.Ordinal)
+	}
+	msg.Timestamp = time.Unix(0, buf.TimeNano)
+	return &msg
 }
 
 func (d *driver) StopLogging(file string) (err error) {

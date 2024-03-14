@@ -1,6 +1,6 @@
 {
   "description": "New GCP docker log driver",
-  "documentation": "-",
+  "documentation": "https://github.com/nanoandrew4/ngcplogs/blob/main/README.md",
   "entrypoint": ["/usr/bin/ngcplogs"],
   "interface": {
     "types": ["docker.logdriver/1.0"],
@@ -20,12 +20,6 @@
       "name": "gcp-project",
       "description": "Set the project ID to log to",
       "value": "",
-      "settable": ["value"]
-    },
-    {
-      "name": "local-logging",
-      "description": "Print logs to docker json file, so docker the docker logs command has something to print. If false or omitted, logs will be sent to GCP but will not be logged locally",
-      "value": "false",
       "settable": ["value"]
     }
   ]
