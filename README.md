@@ -1,4 +1,7 @@
 # ngcplogs
+
+[Dockerhub](https://hub.docker.com/repository/docker/nanoandrew4/ngcplogs/general)
+
 A modified version of the standard `gcplogs` docker logging driver. The standard `gcplogs` driver does not process the
 output from the containers, which means JSON logs result in a log like this:
 
@@ -34,9 +37,40 @@ output from the containers, which means JSON logs result in a log like this:
 }
 ```
 
-This driver behaves similarly to the `gcplogs` one, but if it detects a JSON log, it unmarshals it and sends the unmarshalled map as the payload, resulting in a log like this:
+This driver behaves similarly to the `gcplogs` one, but if it detects a JSON log, it unmarshals it and sends the unmarshalled map as the payload, resulting in a log like this (with the default options):
 ```json
-
+{
+  "insertId": "yero77f8j919i9",
+  "jsonPayload": {
+    "msg": "Updating at 2024-03-15 11:21:38.56773049 +0000 UTC m=+901.837891394\n",
+    "app": "sample-app",
+    "container": {
+      "created": "2024-03-15T11:06:28.730214829Z",
+      "id": "af2c42f7720c8dec812abc5d7cee903aaadf1cd04d87488f3ab1657b92977bc6",
+      "name": "/sample-app",
+      "imageId": "sha256:360b4beb988121df8587572c42af15102a14ecc7c3a5d4cdf221d5d67b29acdc",
+      "imageName": "nanoandrew4/sample-app"
+    },
+    "instance": {
+      "zone": "us-east1-b",
+      "name": "gcp-vm",
+      "id": "8319386972505717539"
+    },
+    "time": "2024-03-15T11:21:40Z"
+  },
+  "resource": {
+    "type": "gce_instance",
+    "labels": {
+      "zone": "us-east1-b",
+      "instance_id": "8390836155502727539",
+      "project_id": "someproject"
+    }
+  },
+  "timestamp": "2024-03-15T11:21:40.080322442Z",
+  "severity": "INFO",
+  "logName": "projects/someproject/logs/ngcplogs-docker-driver",
+  "receiveTimestamp": "2024-03-15T11:21:44.099223634Z"
+}
 ```
 
 Non JSON logs will not be processed, and will be sent to GCP as they were received, without being manipulated.
@@ -44,11 +78,10 @@ Non JSON logs will not be processed, and will be sent to GCP as they were receiv
 ### Installation
 
 ```shell
-docker plugin install nanoandrew4/ngcplogs
-docker plugin enable nanoandrew4/ngcplogs
+docker plugin install nanoandrew4/ngcplogs:v1.0.0 --grant-all-permissions
 ```
 
-In your `daemon.json` file, change the `log-driver` to `nanoandrew4/ngcplogs`
+In your `daemon.json` file, change the `log-driver` to `nanoandrew4/ngcplogs:v1.0.0`
 
 Finally, restart the daemon and docker services:
 
@@ -57,13 +90,25 @@ sudo systemctl daemon-reload && sudo systemctl restart docker
 ```
 
 ### Upgrading
-First stop all containers using the plugin. Once they are all stopped, run the following commands
+First stop all containers using the plugin. Once they are all stopped, run the following commands, supposing there was a 
+version v0.1.0, and we want to upgrade to use v1.0.0
 
 ```shell
-docker plugin disable nanoandrew4/ngcplogs
-docker plugin upgrade nanoandrew4/ngcplogs
-docker plugin enable nanoandrew4/ngcplogs
+docker plugin disable nanoandrew4/ngcplogs:v0.1.0
+docker plugin rm nanoandrew4/ngcplogs:v0.1.0
+docker plugin install nanoandrew4/ngcplogs:v1.0.0 --grant-all-permissions
 ```
+
+
+In your `daemon.json` file, change the `log-driver` to `nanoandrew4/ngcplogs:v1.0.0`
+
+Finally, restart the daemon and docker services:
+
+```shell
+sudo systemctl daemon-reload && sudo systemctl restart docker
+```
+
+Start all your containers again, and they should be using the new version of the plugin
 
 ### Configuration
 

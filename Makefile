@@ -1,5 +1,5 @@
 PLUGIN_NAME=nanoandrew4/ngcplogs
-PLUGIN_TAG=latest
+PLUGIN_TAG=v1.0.0
 PLUGIN_DIR=./ngcplogs-plugin
 all: clean docker rootfs create
 local: clean docker rootfs create enable
@@ -37,5 +37,9 @@ enable:
 	docker plugin enable ${PLUGIN_NAME}:${PLUGIN_TAG}
 
 push: clean docker rootfs create enable
+	@echo "### push plugin ${PLUGIN_NAME}:latest"
+	docker plugin push ${PLUGIN_NAME}:latest
+
+push-release: clean docker rootfs create enable
 	@echo "### push plugin ${PLUGIN_NAME}:${PLUGIN_TAG}"
 	docker plugin push ${PLUGIN_NAME}:${PLUGIN_TAG}
