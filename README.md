@@ -78,10 +78,10 @@ Non JSON logs will not be processed, and will be sent to GCP as they were receiv
 ### Installation
 
 ```shell
-docker plugin install nanoandrew4/ngcplogs:v1.0.0 --grant-all-permissions
+docker plugin install nanoandrew4/ngcplogs:v1.0.1 --grant-all-permissions
 ```
 
-In your `daemon.json` file, change the `log-driver` to `nanoandrew4/ngcplogs:v1.0.0`
+In your `daemon.json` file, change the `log-driver` to `nanoandrew4/ngcplogs:v1.0.1`
 
 Finally, restart the daemon and docker services:
 
@@ -90,17 +90,17 @@ sudo systemctl daemon-reload && sudo systemctl restart docker
 ```
 
 ### Upgrading
-First stop all containers using the plugin. Once they are all stopped, run the following commands, supposing there was a 
-version v0.1.0, and we want to upgrade to use v1.0.0
+First stop all containers using the plugin. Once they are all stopped, run the following commands to upgrade from 
+v1.0.0 to v1.0.1
 
 ```shell
-docker plugin disable nanoandrew4/ngcplogs:v0.1.0
-docker plugin rm nanoandrew4/ngcplogs:v0.1.0
-docker plugin install nanoandrew4/ngcplogs:v1.0.0 --grant-all-permissions
+docker plugin disable nanoandrew4/ngcplogs:v1.0.0
+docker plugin rm nanoandrew4/ngcplogs:v1.0.0
+docker plugin install nanoandrew4/ngcplogs:v1.0.1 --grant-all-permissions
 ```
 
 
-In your `daemon.json` file, change the `log-driver` to `nanoandrew4/ngcplogs:v1.0.0`
+In your `daemon.json` file, change the `log-driver` to `nanoandrew4/ngcplogs:v1.0.1`
 
 Finally, restart the daemon and docker services:
 
