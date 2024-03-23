@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -14,13 +15,15 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
 )
 
 type driver struct {
-	sLog *slog.Logger
+	sLog          *slog.Logger
+	sleepInterval time.Duration
 
 	mu                         sync.Mutex
 	fileToLogWrapperMap        map[string]*logPair
@@ -33,6 +36,11 @@ type logPair struct {
 	logFile io.ReadCloser
 	info    logger.Info
 }
+
+var (
+	localLoggingConfig  = "local-logging"
+	sleepIntervalConfig = "sleep-interval"
+)
 
 func createDriver() *driver {
 	return &driver{
@@ -79,6 +87,20 @@ func (d *driver) StartLogging(file string, info logger.Info) error {
 	}
 	d.fileToLogWrapperMap[file] = lf
 	d.containerIdToLogWrapperMap[info.ContainerID] = lf
+	if sleepInterval, isPresent := info.Config[sleepIntervalConfig]; isPresent {
+		parsedSleepInterval, err := strconv.ParseInt(sleepInterval, 10, 64)
+		if err != nil {
+			d.sLog.With("error", err).Error("Error parsing sleep interval")
+			return err
+		} else {
+			d.sleepInterval = time.Duration(parsedSleepInterval) * time.Millisecond
+		}
+	}
+
+	if d.sleepInterval == 0 {
+		d.sleepInterval = time.Duration(500) * time.Millisecond
+	}
+
 	d.mu.Unlock()
 
 	go d.consumeLog(lf)
@@ -101,15 +123,19 @@ func (d *driver) consumeLog(lp *logPair) {
 			continue
 		}
 
-		if err := lp.gLogger.Log(createMessageFromBuffer(&buf)); err != nil {
-			d.sLog.With("id", lp.info.ContainerID, "error", err, "message", buf).Error("error writing log to GCP logger message")
-			continue
-		}
-		if lp.info.Config["local-logging"] == "true" {
-			if err := lp.jsonl.Log(createMessageFromBuffer(&buf)); err != nil {
-				d.sLog.With("id", lp.info.ContainerID, "error", err, "message", buf).Error("error writing log message to JSON logger")
+		if len(bytes.Fields(buf.Line)) > 0 {
+			if err := lp.gLogger.Log(createMessageFromBuffer(&buf)); err != nil {
+				d.sLog.With("id", lp.info.ContainerID, "error", err, "message", buf).Error("error writing log to GCP logger message")
 				continue
 			}
+			if lp.info.Config[localLoggingConfig] == "true" {
+				if err := lp.jsonl.Log(createMessageFromBuffer(&buf)); err != nil {
+					d.sLog.With("id", lp.info.ContainerID, "error", err, "message", buf).Error("error writing log message to JSON logger")
+					continue
+				}
+			}
+		} else {
+			time.Sleep(d.sleepInterval)
 		}
 
 		buf.Reset()
