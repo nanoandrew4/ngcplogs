@@ -7,14 +7,24 @@ package main
 import (
 	"github.com/docker/go-plugins-helpers/sdk"
 	"log"
+	_ "net/http/pprof"
+	"os"
+	"runtime/pprof"
 )
 
 func main() {
+	f, err := os.Create("/tmp/ngcplogs.prof")
+	if err != nil {
+		log.Fatal(err)
+	}
+	pprof.StartCPUProfile(f)
+	defer pprof.StopCPUProfile()
+
 	nGCPDriver := createDriver()
 
 	sdkHandler := sdk.NewHandler(`{"Implements": ["LoggingDriver"]}`)
 	registerHandlers(&sdkHandler, nGCPDriver)
-	err := sdkHandler.ServeUnix("ngcplogs", 0)
+	err = sdkHandler.ServeUnix("ngcplogs", 0)
 	if err != nil {
 		log.Fatalf("Error in socket handler: %s", err)
 	}

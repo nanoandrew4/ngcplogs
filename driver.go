@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -28,13 +29,6 @@ type driver struct {
 	mu                         sync.Mutex
 	fileToLogWrapperMap        map[string]*logPair
 	containerIdToLogWrapperMap map[string]*logPair
-}
-
-type logPair struct {
-	jsonl   logger.Logger
-	gLogger logger.Logger
-	logFile io.ReadCloser
-	info    logger.Info
 }
 
 var (
@@ -110,28 +104,26 @@ func (d *driver) StartLogging(file string, info logger.Info) error {
 func (d *driver) consumeLog(lp *logPair) {
 	dec := protoio.NewUint32DelimitedReader(lp.logFile, binary.BigEndian, 1e6)
 	defer dec.Close()
+	defer lp.Close()
 	var buf logdriver.LogEntry
 	for {
 		if err := dec.ReadMsg(&buf); err != nil {
-			if err == io.EOF {
+			if err == io.EOF || errors.Is(err, os.ErrClosed) || strings.Contains(err.Error(), "file already closed") {
 				d.sLog.With("id", lp.info.ContainerID).With("error", err).
 					Debug("shutting down log gLogger")
 				lp.logFile.Close()
 				return
 			}
 			dec = protoio.NewUint32DelimitedReader(lp.logFile, binary.BigEndian, 1e6)
-			continue
 		}
 
 		if len(bytes.Fields(buf.Line)) > 0 {
 			if err := lp.gLogger.Log(createMessageFromBuffer(&buf)); err != nil {
 				d.sLog.With("id", lp.info.ContainerID, "error", err, "message", buf).Error("error writing log to GCP logger message")
-				continue
 			}
 			if lp.info.Config[localLoggingConfig] == "true" {
 				if err := lp.jsonl.Log(createMessageFromBuffer(&buf)); err != nil {
 					d.sLog.With("id", lp.info.ContainerID, "error", err, "message", buf).Error("error writing log message to JSON logger")
-					continue
 				}
 			}
 		} else {
