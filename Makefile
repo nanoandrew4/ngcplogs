@@ -1,5 +1,5 @@
 PLUGIN_NAME=nanoandrew4/ngcplogs
-PLUGIN_TAG=v1.1.1
+PLUGIN_TAG=v1.2.0
 PLUGIN_DIR=./ngcplogs-plugin
 all: clean docker rootfs create
 local: clean docker rootfs create enable

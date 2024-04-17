@@ -5,6 +5,9 @@
 A modified version of the standard `gcplogs` docker logging driver. The standard `gcplogs` driver does not process the
 output from the containers, which means JSON logs result in a log like this:
 
+<details>
+  <summary>gcplogs sample log</summary>
+
 ```json
 {
   "insertId": "1x3kge4f3if919",
@@ -36,8 +39,13 @@ output from the containers, which means JSON logs result in a log like this:
   "receiveTimestamp": "2024-03-14T13:27:42.670937226Z"
 }
 ```
+</details>
 
 This driver behaves similarly to the `gcplogs` one, but if it detects a JSON log, it unmarshals it and sends the unmarshalled map as the payload, resulting in a log like this (with the default options):
+
+<details>
+  <summary>ngcplogs sample log</summary>
+
 ```json
 {
   "insertId": "yero77f8j919i9",
@@ -73,15 +81,17 @@ This driver behaves similarly to the `gcplogs` one, but if it detects a JSON log
 }
 ```
 
+</details>
+
 Non JSON logs will not be processed, and will be sent to GCP as they were received, without being manipulated.
 
 ### Installation
 
 ```shell
-docker plugin install nanoandrew4/ngcplogs:v1.1.1 --grant-all-permissions
+docker plugin install nanoandrew4/ngcplogs:v1.2.0 --grant-all-permissions
 ```
 
-In your `daemon.json` file, change the `log-driver` to `nanoandrew4/ngcplogs:v1.1.1`, or just use the logging driver
+In your `daemon.json` file, change the `log-driver` to `nanoandrew4/ngcplogs:v1.2.0`, or just use the logging driver
 on specific containers instead of applying it globally.
 
 If you have modified your `daemon.json` file, restart the daemon and docker services:
@@ -94,16 +104,16 @@ sudo systemctl daemon-reload && sudo systemctl restart docker
 
 ### Upgrading
 First stop all containers using the plugin. Once they are all stopped, run the following commands to upgrade from 
-v1.1.0 to v1.1.1
+v1.1.1 to v1.2.0
 
 ```shell
-docker plugin disable nanoandrew4/ngcplogs:v1.1.0
-docker plugin rm nanoandrew4/ngcplogs:v1.1.0
-docker plugin install nanoandrew4/ngcplogs:v1.1.1 --grant-all-permissions
+docker plugin disable nanoandrew4/ngcplogs:v1.1.1
+docker plugin rm nanoandrew4/ngcplogs:v1.1.1
+docker plugin install nanoandrew4/ngcplogs:v1.2.0 --grant-all-permissions
 ```
 
 If you initially configured `ngcplogs` to be used globally in your `daemon.json` file, change the `log-driver` to 
-`nanoandrew4/ngcplogs:v1.1.1`. Finally, restart the daemon and docker services:
+`nanoandrew4/ngcplogs:v1.2.0`. Finally, restart the daemon and docker services:
 
 ```shell
 sudo systemctl daemon-reload && sudo systemctl restart docker
