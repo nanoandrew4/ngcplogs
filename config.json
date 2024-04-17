@@ -9,11 +9,31 @@
   "network": {
     "type": "host"
   },
+  "mounts": [
+    {
+      "destination": "/host",
+      "type": "none",
+      "source": "/",
+      "options": ["rbind","ro"]
+    }
+  ],
   "env": [
     {
       "name": "log-level",
       "description": "Set log level to output for plugin logs",
       "value": "info",
+      "settable": ["value"]
+    },
+    {
+      "name": "credentials-file",
+      "description": "GCP credentials JSON file to use for authentication (if container is running outside of GCP)",
+      "value": "",
+      "settable": ["value"]
+    },
+    {
+      "name": "credentials-json",
+      "description": "GCP credentials JSON to use for authentication (if container is running outside of GCP)",
+      "value": "",
       "settable": ["value"]
     },
     {

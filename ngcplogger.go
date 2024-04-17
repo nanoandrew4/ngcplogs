@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"google.golang.org/api/option"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,15 +21,17 @@ import (
 const (
 	name = "ngcplogs"
 
-	projectOptKey     = "gcp-project"
-	logLabelsKey      = "labels"
-	logLabelsRegexKey = "labels-regex"
-	logEnvKey         = "env"
-	logEnvRegexKey    = "env-regex"
-	logCmdKey         = "gcp-log-cmd"
-	logZoneKey        = "gcp-meta-zone"
-	logNameKey        = "gcp-meta-name"
-	logIDKey          = "gcp-meta-id"
+	projectOptKey         = "gcp-project"
+	logLabelsKey          = "labels"
+	logLabelsRegexKey     = "labels-regex"
+	logEnvKey             = "env"
+	logEnvRegexKey        = "env-regex"
+	logCmdKey             = "gcp-log-cmd"
+	logZoneKey            = "gcp-meta-zone"
+	logNameKey            = "gcp-meta-name"
+	logIDKey              = "gcp-meta-id"
+	clientCredentialsFile = "credentials-file"
+	clientCredentialsJSON = "credentials-json"
 )
 
 var (
@@ -134,7 +137,14 @@ func New(info logger.Info) (logger.Logger, error) {
 		return nil, fmt.Errorf("no project was specified and couldn't read project from the metadata server. Please specify a project")
 	}
 
-	c, err := logging.NewClient(context.Background(), project)
+	var opts []option.ClientOption
+	if credentialsFile, found := info.Config[clientCredentialsFile]; found {
+		opts = append(opts, option.WithCredentialsFile(fmt.Sprintf("/host/%s", credentialsFile)))
+	} else if credentialsJSON, found := info.Config[clientCredentialsJSON]; found {
+		opts = append(opts, option.WithCredentialsJSON([]byte(credentialsJSON)))
+	}
+
+	c, err := logging.NewClient(context.Background(), project, opts...)
 	if err != nil {
 		return nil, err
 	}

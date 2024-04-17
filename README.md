@@ -86,6 +86,8 @@ on specific containers instead of applying it globally.
 
 If you have modified your `daemon.json` file, restart the daemon and docker services:
 
+If you are running the plugin outside GCP, make sure to set the `gcp-project` log option, as well as either the `credentials-file` or `credentials-json` log option.
+
 ```shell
 sudo systemctl daemon-reload && sudo systemctl restart docker
 ```
@@ -120,6 +122,8 @@ The following [log-opts](https://docs.docker.com/config/containers/logging/confi
 | extract-severity     | true    | Extracts the severity from JSON logs to set them for the log that will be sent to GCP. It will be removed from the jsonPayload section, since it is set at the root level. Currently the supported severity field names to extract are the following: `severity`, `level` |
 | exclude-timestamp    | false   | Excludes timestamp fields from the final jsonPayload, since docker sends its own nanosecond precision timestamp for each log. Currently it can remove fields with the following names: `timestamp`, `time`, `ts`                                                          |
 | sleep-interval       | 500     | Milliseconds to sleep when there are no logs to send before checking again. The higher the value, the lower the CPU usage will be                                                                                                                                         |
+| credentials-file     |         | Absolute path to the GCP credentials JSON file to use when authenticating (only necessary when running the plugin outside of GCP)                                                                                                                                         |
+| credentials-json     |         | JSON string with the GCP credentials to use when authenticating (only necessary when running the plugin outside of GCP)                                                                                                                                                   |
 
 ### Building locally
 
