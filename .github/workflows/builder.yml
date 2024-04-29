@@ -7,9 +7,6 @@ on:
       - 'main'
     tags:
       - 'v*.*.*'
-#  release:
-#    types:
-#      - published
 
 # permissions are needed if pushing to ghcr.io
 permissions:
@@ -49,7 +46,9 @@ jobs:
             nanoandrew4/ngcplogs
           # Docker tags based on the following events/attributes
           tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
             type=semver,pattern={{raw}}
       - name: Build all supported architectures
         run: |
-          make push PLUGIN_TAG=${{ steps.docker_meta_tag_step.outputs.tags }}
+          make push PLUGIN_TAG=${{ steps.docker_meta_tag_step.outputs.version }}

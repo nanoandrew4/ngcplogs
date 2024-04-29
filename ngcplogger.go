@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"google.golang.org/api/option"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"google.golang.org/api/option"
 
 	"github.com/docker/docker/daemon/logger"
 
@@ -77,6 +78,7 @@ type nGCPLogger struct {
 	extractJsonMessage bool
 	extractSeverity    bool
 	excludeTimestamp   bool
+	extractMsg         bool
 }
 
 type dockerLogEntry struct {
@@ -201,6 +203,7 @@ func New(info logger.Info) (logger.Logger, error) {
 		extractJsonMessage: true,
 		extractSeverity:    true,
 		excludeTimestamp:   false,
+		extractMsg:         true,
 	}
 
 	if info.Config[logCmdKey] == "true" {
@@ -215,6 +218,9 @@ func New(info logger.Info) (logger.Logger, error) {
 	}
 	if info.Config["exclude-timestamp"] == "true" {
 		l.excludeTimestamp = true
+	}
+	if info.Config["extract-msg"] == "false" {
+		l.extractMsg = false
 	}
 
 	if instanceResource != nil {
@@ -269,6 +275,7 @@ func (l *nGCPLogger) Log(lMsg *logger.Message) error {
 			} else {
 				severity = l.extractSeverityFromPayload(m)
 				l.excludeTimestampFromPayload(m)
+				l.extractMsgFromPayload(m)
 				m["instance"] = l.instance
 				m["container"] = l.container
 				payload = m
@@ -324,6 +331,16 @@ func (l *nGCPLogger) excludeTimestampFromPayload(m map[string]any) {
 			if _, exists := m[timestampField]; exists {
 				delete(m, timestampField)
 			}
+		}
+	}
+}
+
+func (l *nGCPLogger) extractMsgFromPayload(m map[string]any) {
+
+	if l.extractMsg {
+		if msg, exists := m["msg"]; exists {
+			m["message"] = msg
+			delete(m, "msg")
 		}
 	}
 }

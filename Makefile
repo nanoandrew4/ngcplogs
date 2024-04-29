@@ -11,7 +11,10 @@ clean:
 build:
 	$(foreach ARCH,$(PLUGIN_SUPPORTED_ARCHS), $(call build-plugin,${ARCH}))
 
-push: clean build
+build-all-cr: # For use in Github Action, so that GHCR plugin is also built, which is not necessary when building to install locally
+	$(foreach ARCH,$(PLUGIN_SUPPORTED_ARCHS), $(call build-plugin,${ARCH},true))
+
+push: clean build-all-cr
 	$(foreach ARCH,$(PLUGIN_SUPPORTED_ARCHS), $(call push,${ARCH}))
 
 define clean
@@ -25,8 +28,10 @@ sudo rm -rf ${PLUGIN_DIR}-${TAG_ARCH}
 endef
 
 define build-plugin
+@echo
 
-ARCH=$(1)
+$(eval ARCH=$(shell echo $(1)))
+$(eval BUILD_GHCR_PLUGIN=$(shell echo $(2)))
 $(eval TAG_ARCH=$(shell echo ${ARCH} | sed 's~/~-~g'))
 
 @echo "### docker build: rootfs image with ngcplogs"
@@ -34,7 +39,7 @@ docker buildx build --platform ${ARCH} -t ${PLUGIN_NAME}:${TAG_ARCH}-rootfs --lo
 
 @echo "### create rootfs directory in ${PLUGIN_DIR}-${TAG_ARCH}/rootfs"
 mkdir -p ${PLUGIN_DIR}-${TAG_ARCH}/rootfs
-docker create --name tmprootfs ${PLUGIN_NAME}:${TAG_ARCH}-rootfs
+docker create --name tmprootfs --platform ${ARCH} ${PLUGIN_NAME}:${TAG_ARCH}-rootfs
 docker export tmprootfs | tar -x -C ${PLUGIN_DIR}-${TAG_ARCH}/rootfs
 
 @echo "### copy config.json to ${PLUGIN_DIR}-${TAG_ARCH}/"
@@ -45,11 +50,30 @@ docker rm -vf tmprootfs
 docker plugin rm -f ${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} || true
 
 @echo "### create new plugin ${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} from ${PLUGIN_DIR}-${TAG_ARCH}"
+touch ${PLUGIN_DIR}-${TAG_ARCH}/rootfs/.dockerhub
 docker plugin create ${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} ${PLUGIN_DIR}-${TAG_ARCH}
+rm ${PLUGIN_DIR}-${TAG_ARCH}/rootfs/.dockerhub
+
+$(if $(findstring ${BUILD_GHCR_PLUGIN},true), $(call build-ghcr-plugin,${ARCH}))
+
+endef
+
+define build-ghcr-plugin
+@echo
+
+ARCH=$(1)
+$(eval TAG_ARCH=$(shell echo ${ARCH} | sed 's~/~-~g'))
+
+@echo "### create new plugin ghcr.io/${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} from ${PLUGIN_DIR}-${TAG_ARCH}"
+docker plugin rm -f ghcr.io/${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} || true
+touch ${PLUGIN_DIR}-${TAG_ARCH}/rootfs/.ghcr
+docker plugin create ghcr.io/${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} ${PLUGIN_DIR}-${TAG_ARCH}
+rm ${PLUGIN_DIR}-${TAG_ARCH}/rootfs/.ghcr
 
 endef
 
 define push
+@echo
 
 ARCH=$(1)
 $(eval TAG_ARCH=$(shell echo ${ARCH} | sed 's~/~-~g'))
