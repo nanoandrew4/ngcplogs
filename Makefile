@@ -1,45 +1,60 @@
 PLUGIN_NAME=nanoandrew4/ngcplogs
-PLUGIN_TAG=v1.2.0
+PLUGIN_TAG?=latest
 PLUGIN_DIR=./ngcplogs-plugin
-all: clean docker rootfs create
-local: clean docker rootfs create enable
-package: clean docker rootfs zip
+PLUGIN_SUPPORTED_ARCHS=linux/amd64 linux/arm64
+
+all: clean build
 
 clean:
-	@echo "### rm ${PLUGIN_DIR}"
-	sudo rm -rf ${PLUGIN_DIR}
+	$(foreach ARCH,$(PLUGIN_SUPPORTED_ARCHS), $(call clean,${ARCH}))
 
-docker:
-	@echo "### docker build: rootfs image with ngcplogs"
-	docker build -t ${PLUGIN_NAME}:rootfs .
+build:
+	$(foreach ARCH,$(PLUGIN_SUPPORTED_ARCHS), $(call build-plugin,${ARCH}))
 
-rootfs:
-	@echo "### create rootfs directory in ${PLUGIN_DIR}/rootfs"
-	mkdir -p ${PLUGIN_DIR}/rootfs
-	docker create --name tmprootfs ${PLUGIN_NAME}:rootfs
-	docker export tmprootfs | tar -x -C ${PLUGIN_DIR}/rootfs
-	@echo "### copy config.json to ${PLUGIN_DIR}/"
-	cp config.json ${PLUGIN_DIR}/
-	docker rm -vf tmprootfs
+push: clean build
+	$(foreach ARCH,$(PLUGIN_SUPPORTED_ARCHS), $(call push,${ARCH}))
 
-create:
-	@echo "### remove existing plugin ${PLUGIN_NAME}:${PLUGIN_TAG} if exists"
-	docker plugin rm -f ${PLUGIN_NAME}:${PLUGIN_TAG} || true
-	@echo "### create new plugin ${PLUGIN_NAME}:${PLUGIN_TAG} from ${PLUGIN_DIR}"
-	docker plugin create ${PLUGIN_NAME}:${PLUGIN_TAG} ${PLUGIN_DIR}
+define clean
 
-zip:
-	@echo "### create a tar.gz for plugin"
-	tar -cvzf ngcplogs-plugin.tar.gz ${PLUGIN_DIR}
+ARCH=$(1)
+$(eval TAG_ARCH=$(shell echo ${ARCH} | sed 's~/~-~g'))
 
-enable:
-	@echo "### enable plugin ${PLUGIN_NAME}:${PLUGIN_TAG}"
-	docker plugin enable ${PLUGIN_NAME}:${PLUGIN_TAG}
+@echo "### rm ${PLUGIN_DIR} for ${TAG_ARCH}"
+sudo rm -rf ${PLUGIN_DIR}-${TAG_ARCH}
 
-push: clean docker rootfs create enable
-	@echo "### push plugin ${PLUGIN_NAME}:latest"
-	docker plugin push ${PLUGIN_NAME}:latest
+endef
 
-push-release: clean docker rootfs create enable
-	@echo "### push plugin ${PLUGIN_NAME}:${PLUGIN_TAG}"
-	docker plugin push ${PLUGIN_NAME}:${PLUGIN_TAG}
+define build-plugin
+
+ARCH=$(1)
+$(eval TAG_ARCH=$(shell echo ${ARCH} | sed 's~/~-~g'))
+
+@echo "### docker build: rootfs image with ngcplogs"
+docker buildx build --platform ${ARCH} -t ${PLUGIN_NAME}:${TAG_ARCH}-rootfs --load .
+
+@echo "### create rootfs directory in ${PLUGIN_DIR}-${TAG_ARCH}/rootfs"
+mkdir -p ${PLUGIN_DIR}-${TAG_ARCH}/rootfs
+docker create --name tmprootfs ${PLUGIN_NAME}:${TAG_ARCH}-rootfs
+docker export tmprootfs | tar -x -C ${PLUGIN_DIR}-${TAG_ARCH}/rootfs
+
+@echo "### copy config.json to ${PLUGIN_DIR}-${TAG_ARCH}/"
+cp config.json ${PLUGIN_DIR}-${TAG_ARCH}/
+docker rm -vf tmprootfs
+
+@echo "### remove existing plugin ${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} if exists"
+docker plugin rm -f ${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} || true
+
+@echo "### create new plugin ${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} from ${PLUGIN_DIR}-${TAG_ARCH}"
+docker plugin create ${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} ${PLUGIN_DIR}-${TAG_ARCH}
+
+endef
+
+define push
+
+ARCH=$(1)
+$(eval TAG_ARCH=$(shell echo ${ARCH} | sed 's~/~-~g'))
+
+docker plugin push ${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG}
+docker plugin push ghcr.io/${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG}
+
+endef
