@@ -87,11 +87,13 @@ Non JSON logs will not be processed, and will be sent to GCP as they were receiv
 
 ### Installation
 
+The examples assume you want to use the amd64 version of the plugin, but you can replace it for another of the available tags
+
 ```shell
-docker plugin install nanoandrew4/ngcplogs:v1.3.0 --grant-all-permissions
+docker plugin install nanoandrew4/ngcplogs:linux-amd64-v1.3.0 --grant-all-permissions
 ```
 
-In your `daemon.json` file, change the `log-driver` to `nanoandrew4/ngcplogs:v1.3.0`, or just use the logging driver
+In your `daemon.json` file, change the `log-driver` to `nanoandrew4/ngcplogs:linux-amd64-v1.3.0`, or just use the logging driver
 on specific containers instead of applying it globally.
 
 If you have modified your `daemon.json` file, restart the daemon and docker services:
@@ -103,17 +105,19 @@ sudo systemctl daemon-reload && sudo systemctl restart docker
 ```
 
 ### Upgrading
+The examples assume you want to use the amd64 version of the plugin, but you can replace it for another of the available tags
+
 First stop all containers using the plugin. Once they are all stopped, run the following commands to upgrade from 
-v1.2.0 to v1.3.0
+v1.2.0 to linux-amd64-v1.3.0
 
 ```shell
 docker plugin disable nanoandrew4/ngcplogs:v1.2.0
 docker plugin rm nanoandrew4/ngcplogs:v1.2.0
-docker plugin install nanoandrew4/ngcplogs:v1.3.0 --grant-all-permissions
+docker plugin install nanoandrew4/ngcplogs:linux-amd64-v1.3.0 --grant-all-permissions
 ```
 
 If you initially configured `ngcplogs` to be used globally in your `daemon.json` file, change the `log-driver` to 
-`nanoandrew4/ngcplogs:v1.3.0`. Finally, restart the daemon and docker services:
+`nanoandrew4/ngcplogs:linux-amd64-v1.3.0`. Finally, restart the daemon and docker services:
 
 ```shell
 sudo systemctl daemon-reload && sudo systemctl restart docker
