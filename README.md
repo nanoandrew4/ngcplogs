@@ -138,6 +138,8 @@ The following [log-opts](https://docs.docker.com/config/containers/logging/confi
 
 ### Building locally
 
+To build locally, you first must install [docker buildx](https://github.com/docker/buildx?tab=readme-ov-file#installing).
+
 If you want to build the plugin yourself for all supported architectures, use the makefile with the following command
 ```shell
 make all
