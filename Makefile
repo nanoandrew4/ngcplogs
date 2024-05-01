@@ -50,7 +50,7 @@ docker rm -vf tmprootfs
 docker plugin rm -f ${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} || true
 
 @echo "### create new plugin ${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} from ${PLUGIN_DIR}-${TAG_ARCH}"
-touch ${PLUGIN_DIR}-${TAG_ARCH}/rootfs/.dockerhub
+touch ${PLUGIN_DIR}-${TAG_ARCH}/rootfs/.dockerhub # Add a file so the generated plugin has a different hash than the ghcr version
 docker plugin create ${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} ${PLUGIN_DIR}-${TAG_ARCH}
 rm ${PLUGIN_DIR}-${TAG_ARCH}/rootfs/.dockerhub
 
@@ -66,7 +66,7 @@ $(eval TAG_ARCH=$(shell echo ${ARCH} | sed 's~/~-~g'))
 
 @echo "### create new plugin ghcr.io/${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} from ${PLUGIN_DIR}-${TAG_ARCH}"
 docker plugin rm -f ghcr.io/${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} || true
-touch ${PLUGIN_DIR}-${TAG_ARCH}/rootfs/.ghcr
+touch ${PLUGIN_DIR}-${TAG_ARCH}/rootfs/.ghcr # Add a file so the generated plugin has a different hash than the dockerhub version
 docker plugin create ghcr.io/${PLUGIN_NAME}:${TAG_ARCH}-${PLUGIN_TAG} ${PLUGIN_DIR}-${TAG_ARCH}
 rm ${PLUGIN_DIR}-${TAG_ARCH}/rootfs/.ghcr
 
