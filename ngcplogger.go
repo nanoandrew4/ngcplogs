@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net/http"
+	"net/url"
 	"reflect"
 	"runtime"
 	"strings"
@@ -78,12 +81,14 @@ type nGCPLogger struct {
 	logger    *logging.Logger
 	instance  *instanceInfo
 	container *containerInfo
+	projectID string
 
 	extractJsonMessage bool
 	extractSeverity    bool
 	excludeTimestamp   bool
 	extractMsg         bool
 	extractGcp         bool
+	extractCaddy       bool
 
 	internalErrorSeverity logging.Severity
 }
@@ -207,11 +212,13 @@ func New(info logger.Info) (logger.Logger, error) {
 			Created:   info.ContainerCreated,
 			Metadata:  extraAttributes,
 		},
+		projectID:          project,
 		extractJsonMessage: true,
 		extractSeverity:    true,
 		excludeTimestamp:   false,
 		extractMsg:         true,
 		extractGcp:         false,
+		extractCaddy:       false,
 	}
 
 	if info.Config[logCmdKey] == "true" {
@@ -232,6 +239,9 @@ func New(info logger.Info) (logger.Logger, error) {
 	}
 	if info.Config["extract-gcp"] == "true" {
 		l.extractGcp = true
+	}
+	if info.Config["extract-caddy"] == "true" {
+		l.extractCaddy = true
 	}
 
 	if internalErrorSeverityStr, isPresent := info.Config["internal-error-severity"]; isPresent {
@@ -300,6 +310,8 @@ func (l *nGCPLogger) Log(lMsg *logger.Message) error {
 				l.extractMsgFromPayload(m)
 				m["instance"] = l.instance
 				m["container"] = l.container
+				l.extractGcpFromPayload(m, &entry)
+				l.extractCaddyFromPayload(m, &entry)
 				l.extractGcpFromPayload(m, &entry, errMgr)
 
 				var driverErr *nGCPError
@@ -423,6 +435,63 @@ func (l *nGCPLogger) extractGcpFromPayload(m map[string]any, entry *logging.Entr
 				entry.Labels[k] = castOrAppendErr[string](v, driverErr)
 			}
 			delete(m, "logging.googleapis.com/labels")
+		}
+	}
+}
+
+func (l *nGCPLogger) extractCaddyFromPayload(m map[string]any, entry *logging.Entry) {
+
+	if l.extractCaddy {
+		if val, exists := m["request"]; exists {
+			hr := logging.HTTPRequest{
+				Request: &http.Request{
+					Header: make(http.Header),
+				},
+			}
+			v := assertOrLog[map[string]any](val)
+			hr.Request.Method = assertOrLog[string](v["method"])
+			_, isTLS := v["tls"]
+			var h = "http"
+			if isTLS {
+				h = "https"
+			}
+			hr.Request.URL = &url.URL{
+				Scheme:  h,
+				Host:    assertOrLog[string](v["host"]),
+				RawPath: assertOrLog[string](v["uri"]),
+				Path:    assertOrLog[string](v["uri"]),
+			}
+			if t, ok := m["bytes_read"]; ok {
+				hr.RequestSize = int64(assertOrLog[float64](t))
+			}
+			if t, ok := m["status"]; ok {
+				hr.Status = int(assertOrLog[float64](t))
+			}
+			if t, ok := m["size"]; ok {
+				hr.ResponseSize = int64(assertOrLog[float64](t))
+			}
+			if t, ok := m["duration"]; ok {
+				hr.Latency = time.Duration(assertOrLog[float64](t) * float64(time.Second))
+			}
+			hr.Request.Proto = assertOrLog[string](v["proto"])
+			hr.RemoteIP = assertOrLog[string](v["remote_ip"]) + ":" + assertOrLog[string](v["remote_port"])
+
+			if t, ok := v["headers"]; ok {
+				headers := assertOrLog[map[string]any](t)
+				for h, v := range headers {
+					for _, s := range assertOrLog[[]any](v) {
+						hr.Request.Header.Add(h, assertOrLog[string](s))
+					}
+				}
+			}
+			entry.HTTPRequest = &hr
+			//Caddy request contains more data, don't
+			//delete.
+			//delete(m, "request")
+		}
+		if val, exists := m["traceID"]; exists {
+			entry.Trace = "projects/" + l.projectID + "/traces/" + val.(string)
+			delete(m, "traceID")
 		}
 	}
 }
