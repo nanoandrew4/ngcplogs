@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -288,7 +287,7 @@ func (l *nGCPLogger) Log(lMsg *logger.Message) error {
 	logLine := strings.TrimSpace(string(lMsg.Line))
 	ts := lMsg.Timestamp
 
-	errMgr := &driverError{}
+	driverErr := &driverError{}
 
 	if len(logLine) > 0 {
 		var payload any
@@ -310,18 +309,17 @@ func (l *nGCPLogger) Log(lMsg *logger.Message) error {
 				l.extractMsgFromPayload(m)
 				m["instance"] = l.instance
 				m["container"] = l.container
-				l.extractGcpFromPayload(m, &entry)
-				l.extractCaddyFromPayload(m, &entry)
-				l.extractGcpFromPayload(m, &entry, errMgr)
+				l.extractGcpFromPayload(m, &entry, driverErr)
+				l.extractCaddyFromPayload(m, &entry, driverErr)
 
-				var driverErr *nGCPError
-				if errors.As(lMsg.Err, &driverErr) && driverErr != nil {
+				var receivedDriverErr *nGCPError
+				if errors.As(lMsg.Err, &receivedDriverErr) && receivedDriverErr != nil {
 					// Replace original message and error with driver error
 					delete(m, "message")
 					delete(m, "error")
-					m["ngcplogs-error"] = driverErr
+					m["ngcplogs-error"] = receivedDriverErr
 					entry.Severity = l.internalErrorSeverity
-					entry.Timestamp = driverErr.ts
+					entry.Timestamp = receivedDriverErr.ts
 				}
 				payload = m
 			}
@@ -336,7 +334,7 @@ func (l *nGCPLogger) Log(lMsg *logger.Message) error {
 		entry.Payload = payload
 		l.logger.Log(entry)
 	}
-	return errMgr.Get()
+	return driverErr.Get()
 }
 
 func (l *nGCPLogger) extractSeverityFromPayload(m map[string]any) logging.Severity {
@@ -385,7 +383,7 @@ func (l *nGCPLogger) extractMsgFromPayload(m map[string]any) {
 	}
 }
 
-func castOrAppendErr[T any](val any, driverErr *driverError) T {
+func castOrSetDriverErr[T any](val any, driverErr *driverError) T {
 	var v T
 	var ok bool
 	v, ok = val.(T)
@@ -407,39 +405,39 @@ func castOrAppendErr[T any](val any, driverErr *driverError) T {
 func (l *nGCPLogger) extractGcpFromPayload(m map[string]any, entry *logging.Entry, driverErr *driverError) {
 	if l.extractGcp {
 		if sourceLocation, exists := m["logging.googleapis.com/sourceLocation"]; exists {
-			sourceLocationMap := castOrAppendErr[map[string]any](sourceLocation, driverErr)
+			sourceLocationMap := castOrSetDriverErr[map[string]any](sourceLocation, driverErr)
 			if sourceLocationMap != nil {
 				entry.SourceLocation = &loggingpb.LogEntrySourceLocation{
-					File:     castOrAppendErr[string](sourceLocationMap["file"], driverErr),
-					Line:     int64(castOrAppendErr[float64](sourceLocationMap["line"], driverErr)),
-					Function: castOrAppendErr[string](sourceLocationMap["function"], driverErr),
+					File:     castOrSetDriverErr[string](sourceLocationMap["file"], driverErr),
+					Line:     int64(castOrSetDriverErr[float64](sourceLocationMap["line"], driverErr)),
+					Function: castOrSetDriverErr[string](sourceLocationMap["function"], driverErr),
 				}
 			}
 			delete(m, "logging.googleapis.com/sourceLocation")
 		}
 		if val, exists := m["logging.googleapis.com/trace"]; exists {
-			entry.Trace = castOrAppendErr[string](val, driverErr)
+			entry.Trace = castOrSetDriverErr[string](val, driverErr)
 			delete(m, "logging.googleapis.com/trace")
 		}
 		if val, exists := m["logging.googleapis.com/spanId"]; exists {
-			entry.SpanID = castOrAppendErr[string](val, driverErr)
+			entry.SpanID = castOrSetDriverErr[string](val, driverErr)
 			delete(m, "logging.googleapis.com/spanId")
 		}
 		if val, exists := m["logging.googleapis.com/trace_sampled"]; exists {
-			entry.TraceSampled = castOrAppendErr[bool](val, driverErr)
+			entry.TraceSampled = castOrSetDriverErr[bool](val, driverErr)
 			delete(m, "logging.googleapis.com/trace_sampled")
 		}
 		if labels, exists := m["logging.googleapis.com/labels"]; exists {
-			labelsMap := castOrAppendErr[map[string]any](labels, driverErr)
+			labelsMap := castOrSetDriverErr[map[string]any](labels, driverErr)
 			for k, v := range labelsMap {
-				entry.Labels[k] = castOrAppendErr[string](v, driverErr)
+				entry.Labels[k] = castOrSetDriverErr[string](v, driverErr)
 			}
 			delete(m, "logging.googleapis.com/labels")
 		}
 	}
 }
 
-func (l *nGCPLogger) extractCaddyFromPayload(m map[string]any, entry *logging.Entry) {
+func (l *nGCPLogger) extractCaddyFromPayload(m map[string]any, entry *logging.Entry, driverErr *driverError) {
 
 	if l.extractCaddy {
 		if val, exists := m["request"]; exists {
@@ -448,39 +446,39 @@ func (l *nGCPLogger) extractCaddyFromPayload(m map[string]any, entry *logging.En
 					Header: make(http.Header),
 				},
 			}
-			v := assertOrLog[map[string]any](val)
-			hr.Request.Method = assertOrLog[string](v["method"])
-			_, isTLS := v["tls"]
+			requestMap := castOrSetDriverErr[map[string]any](val, driverErr)
+			hr.Request.Method = castOrSetDriverErr[string](requestMap["method"], driverErr)
+			_, isTLS := requestMap["tls"]
 			var h = "http"
 			if isTLS {
 				h = "https"
 			}
 			hr.Request.URL = &url.URL{
 				Scheme:  h,
-				Host:    assertOrLog[string](v["host"]),
-				RawPath: assertOrLog[string](v["uri"]),
-				Path:    assertOrLog[string](v["uri"]),
+				Host:    castOrSetDriverErr[string](requestMap["host"], driverErr),
+				RawPath: castOrSetDriverErr[string](requestMap["uri"], driverErr),
+				Path:    castOrSetDriverErr[string](requestMap["uri"], driverErr),
 			}
 			if t, ok := m["bytes_read"]; ok {
-				hr.RequestSize = int64(assertOrLog[float64](t))
+				hr.RequestSize = int64(castOrSetDriverErr[float64](t, driverErr))
 			}
 			if t, ok := m["status"]; ok {
-				hr.Status = int(assertOrLog[float64](t))
+				hr.Status = int(castOrSetDriverErr[float64](t, driverErr))
 			}
 			if t, ok := m["size"]; ok {
-				hr.ResponseSize = int64(assertOrLog[float64](t))
+				hr.ResponseSize = int64(castOrSetDriverErr[float64](t, driverErr))
 			}
 			if t, ok := m["duration"]; ok {
-				hr.Latency = time.Duration(assertOrLog[float64](t) * float64(time.Second))
+				hr.Latency = time.Duration(castOrSetDriverErr[float64](t, driverErr) * float64(time.Second))
 			}
-			hr.Request.Proto = assertOrLog[string](v["proto"])
-			hr.RemoteIP = assertOrLog[string](v["remote_ip"]) + ":" + assertOrLog[string](v["remote_port"])
+			hr.Request.Proto = castOrSetDriverErr[string](requestMap["proto"], driverErr)
+			hr.RemoteIP = castOrSetDriverErr[string](requestMap["remote_ip"], driverErr) + ":" + castOrSetDriverErr[string](requestMap["remote_port"], driverErr)
 
-			if t, ok := v["headers"]; ok {
-				headers := assertOrLog[map[string]any](t)
+			if t, ok := requestMap["headers"]; ok {
+				headers := castOrSetDriverErr[map[string]any](t, driverErr)
 				for h, v := range headers {
-					for _, s := range assertOrLog[[]any](v) {
-						hr.Request.Header.Add(h, assertOrLog[string](s))
+					for _, s := range castOrSetDriverErr[[]any](v, driverErr) {
+						hr.Request.Header.Add(h, castOrSetDriverErr[string](s, driverErr))
 					}
 				}
 			}
