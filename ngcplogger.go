@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"reflect"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -84,6 +84,8 @@ type nGCPLogger struct {
 	excludeTimestamp   bool
 	extractMsg         bool
 	extractGcp         bool
+
+	internalErrorSeverity logging.Severity
 }
 
 type dockerLogEntry struct {
@@ -232,6 +234,12 @@ func New(info logger.Info) (logger.Logger, error) {
 		l.extractGcp = true
 	}
 
+	if internalErrorSeverityStr, isPresent := info.Config["internal-error-severity"]; isPresent {
+		l.internalErrorSeverity = logging.ParseSeverity(internalErrorSeverityStr)
+	} else {
+		l.internalErrorSeverity = logging.Warning
+	}
+
 	if instanceResource != nil {
 		l.instance = instanceResource
 	}
@@ -267,9 +275,10 @@ func ValidateLogOpts(cfg map[string]string) error {
 }
 
 func (l *nGCPLogger) Log(lMsg *logger.Message) error {
-	logLine := lMsg.Line
+	logLine := strings.TrimSpace(string(lMsg.Line))
 	ts := lMsg.Timestamp
-	logger.PutMessage(lMsg)
+
+	errMgr := &driverError{}
 
 	if len(logLine) > 0 {
 		var payload any
@@ -281,31 +290,41 @@ func (l *nGCPLogger) Log(lMsg *logger.Message) error {
 
 		if l.extractJsonMessage && logLine[0] == '{' && logLine[len(logLine)-1] == '}' {
 			var m map[string]any
-			err := json.Unmarshal(logLine, &m)
+			err := json.Unmarshal([]byte(logLine), &m)
 			if err != nil {
-				payload = fmt.Sprintf("Error parsing JSON: %s", string(logLine))
-				entry.Severity = logging.Critical
+				payload = fmt.Sprintf("Error parsing JSON: %s", logLine)
+				entry.Severity = l.internalErrorSeverity
 			} else {
 				entry.Severity = l.extractSeverityFromPayload(m)
 				l.excludeTimestampFromPayload(m)
 				l.extractMsgFromPayload(m)
 				m["instance"] = l.instance
 				m["container"] = l.container
-				l.extractGcpFromPayload(m, &entry)
+				l.extractGcpFromPayload(m, &entry, errMgr)
+
+				var driverErr *nGCPError
+				if errors.As(lMsg.Err, &driverErr) && driverErr != nil {
+					// Replace original message and error with driver error
+					delete(m, "message")
+					delete(m, "error")
+					m["ngcplogs-error"] = driverErr
+					entry.Severity = l.internalErrorSeverity
+					entry.Timestamp = driverErr.ts
+				}
 				payload = m
 			}
 		} else {
 			payload = dockerLogEntry{
 				Instance:  l.instance,
 				Container: l.container,
-				Message:   string(logLine),
+				Message:   logLine,
 			}
 		}
 
 		entry.Payload = payload
 		l.logger.Log(entry)
 	}
-	return nil
+	return errMgr.Get()
 }
 
 func (l *nGCPLogger) extractSeverityFromPayload(m map[string]any) logging.Severity {
@@ -346,7 +365,6 @@ func (l *nGCPLogger) excludeTimestampFromPayload(m map[string]any) {
 }
 
 func (l *nGCPLogger) extractMsgFromPayload(m map[string]any) {
-
 	if l.extractMsg {
 		if msg, exists := m["msg"]; exists {
 			m["message"] = msg
@@ -355,7 +373,7 @@ func (l *nGCPLogger) extractMsgFromPayload(m map[string]any) {
 	}
 }
 
-func assertOrLog[T any](val any) T {
+func castOrAppendErr[T any](val any, driverErr *driverError) T {
 	var v T
 	var ok bool
 	v, ok = val.(T)
@@ -364,39 +382,45 @@ func assertOrLog[T any](val any) T {
 		if !ok {
 			file = "unknown"
 		}
-		slog.Error("unexpected type", "want", reflect.TypeOf(v).String(), "got", reflect.TypeOf(val).String(), "file", file, "line", line)
+		driverErr.Set(&nGCPError{
+			File: file,
+			Line: line,
+			ts:   time.Now(),
+			Msg:  fmt.Sprintf("unexpected type, wanted %q and got %q", reflect.TypeOf(v).String(), reflect.TypeOf(val).String()),
+		})
 	}
 	return v
 }
 
-func (l *nGCPLogger) extractGcpFromPayload(m map[string]any, entry *logging.Entry) {
-
+func (l *nGCPLogger) extractGcpFromPayload(m map[string]any, entry *logging.Entry, driverErr *driverError) {
 	if l.extractGcp {
-		if val, exists := m["logging.googleapis.com/sourceLocation"]; exists {
-			v := assertOrLog[map[string]any](val)
-			entry.SourceLocation = &loggingpb.LogEntrySourceLocation{
-				File:     assertOrLog[string](v["file"]),
-				Line:     int64(assertOrLog[float64](v["line"])),
-				Function: assertOrLog[string](v["function"]),
+		if sourceLocation, exists := m["logging.googleapis.com/sourceLocation"]; exists {
+			sourceLocationMap := castOrAppendErr[map[string]any](sourceLocation, driverErr)
+			if sourceLocationMap != nil {
+				entry.SourceLocation = &loggingpb.LogEntrySourceLocation{
+					File:     castOrAppendErr[string](sourceLocationMap["file"], driverErr),
+					Line:     int64(castOrAppendErr[float64](sourceLocationMap["line"], driverErr)),
+					Function: castOrAppendErr[string](sourceLocationMap["function"], driverErr),
+				}
 			}
 			delete(m, "logging.googleapis.com/sourceLocation")
 		}
 		if val, exists := m["logging.googleapis.com/trace"]; exists {
-			entry.Trace = assertOrLog[string](val)
+			entry.Trace = castOrAppendErr[string](val, driverErr)
 			delete(m, "logging.googleapis.com/trace")
 		}
 		if val, exists := m["logging.googleapis.com/spanId"]; exists {
-			entry.SpanID = assertOrLog[string](val)
+			entry.SpanID = castOrAppendErr[string](val, driverErr)
 			delete(m, "logging.googleapis.com/spanId")
 		}
 		if val, exists := m["logging.googleapis.com/trace_sampled"]; exists {
-			entry.TraceSampled = assertOrLog[bool](val)
+			entry.TraceSampled = castOrAppendErr[bool](val, driverErr)
 			delete(m, "logging.googleapis.com/trace_sampled")
 		}
-		if val, exists := m["logging.googleapis.com/labels"]; exists {
-			v := assertOrLog[map[string]any](val)
-			for k, v := range v {
-				entry.Labels[k] = assertOrLog[string](v)
+		if labels, exists := m["logging.googleapis.com/labels"]; exists {
+			labelsMap := castOrAppendErr[map[string]any](labels, driverErr)
+			for k, v := range labelsMap {
+				entry.Labels[k] = castOrAppendErr[string](v, driverErr)
 			}
 			delete(m, "logging.googleapis.com/labels")
 		}
