@@ -385,9 +385,17 @@ func (l *nGCPLogger) extractMsgFromPayload(m map[string]any) {
 
 func castOrSetDriverErr[T any](val any, driverErr *driverError) T {
 	var v T
-	var ok bool
-	v, ok = val.(T)
-	if !ok {
+	var errMsg string
+	if val == nil {
+		errMsg = fmt.Sprintf("unexpected nil value")
+	} else {
+		var ok bool
+		v, ok = val.(T)
+		if !ok {
+			errMsg = fmt.Sprintf("unexpected type, wanted %q and got %q", reflect.TypeOf(v).String(), reflect.TypeOf(val).String())
+		}
+	}
+	if errMsg != "" {
 		_, file, line, ok := runtime.Caller(1)
 		if !ok {
 			file = "unknown"
@@ -396,7 +404,7 @@ func castOrSetDriverErr[T any](val any, driverErr *driverError) T {
 			File: file,
 			Line: line,
 			ts:   time.Now(),
-			Msg:  fmt.Sprintf("unexpected type, wanted %q and got %q", reflect.TypeOf(v).String(), reflect.TypeOf(val).String()),
+			Msg:  errMsg,
 		})
 	}
 	return v
