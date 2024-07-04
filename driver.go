@@ -119,19 +119,45 @@ func (d *driver) consumeLog(lp *logPair) {
 		}
 
 		if len(bytes.Fields(buf.Line)) > 0 {
-			if err := lp.gLogger.Log(createMessageFromBuffer(&buf)); err != nil {
-				d.sLog.With("id", lp.info.ContainerID, "error", err, "message", buf).Error("error writing log to GCP logger message")
-			}
-			if lp.info.Config[localLoggingConfig] == "true" {
-				if err := lp.jsonl.Log(createMessageFromBuffer(&buf)); err != nil {
-					d.sLog.With("id", lp.info.ContainerID, "error", err, "message", buf).Error("error writing log message to JSON logger")
-				}
-			}
+			d.log(lp, createMessageFromBuffer(&buf))
 		} else {
 			time.Sleep(d.sleepInterval)
 		}
 
 		buf.Reset()
+	}
+}
+
+func (d *driver) log(lp *logPair, msg *logger.Message) {
+	if msg.Err != nil {
+		d.sLog.With("id", lp.info.ContainerID, "error", msg.Err, "message", string(msg.Line)).Error("writing driver err log to GCP logger")
+	}
+
+	if err := lp.gLogger.Log(msg); err != nil {
+		d.sLog.With("id", lp.info.ContainerID, "error", err, "message", string(msg.Line)).Error("error writing log to GCP logger message")
+		d.sLog.Error(fmt.Sprintf("error %+v", err))
+
+		// handleLoggingError will call with a non-nil err, so we avoid errors from being logged infinitely
+		if msg.Err == nil {
+			d.handleLoggingError(lp, msg, err)
+		}
+	}
+	if lp.info.Config[localLoggingConfig] == "true" {
+		if err := lp.jsonl.Log(msg); err != nil {
+			d.sLog.With("id", lp.info.ContainerID, "error", err, "message", string(msg.Line)).Error("error writing log message to JSON logger")
+		}
+	}
+}
+
+func (d *driver) handleLoggingError(lp *logPair, originalMsg *logger.Message, err error) {
+	var driverErr *nGCPError
+	if errors.As(err, &driverErr) && driverErr != nil {
+		d.log(lp, &logger.Message{
+			Line:      originalMsg.Line,
+			Source:    originalMsg.Source,
+			Timestamp: driverErr.ts,
+			Err:       err,
+		})
 	}
 }
 
